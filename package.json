@@ -1,0 +1,22 @@
+{
+  "name": "booking-project",
+  "version": "1.0.0",
+  "description": "Library Project - Book Search API",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "sam:build": "sam build",
+    "sam:local": "sam local start-api --env-vars env.json --parameter-overrides 'ParameterKey=Environment,ParameterValue=dev ParameterKey=BucketName,ParameterValue=library-store-bucket'\"",
+    "sam:deploy:dev": "sam deploy --config-env dev",
+    "sam:deploy:qa": "sam deploy --config-env qa",
+    "sam:deploy:prod": "sam deploy --config-env prod",
+    "sam:validate": "sam validate",
+    "sam:logs": "sam logs --stack-name library-project-dev --tail"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}

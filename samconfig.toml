@@ -1,0 +1,78 @@
+version = 0.1
+
+[default]
+[default.global.parameters]
+stack_name = "library-project"
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.validate.parameters]
+lint = true
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+resolve_s3 = true
+region = "us-east-2"
+
+[default.package.parameters]
+resolve_s3 = true
+
+[default.sync.parameters]
+watch = true
+
+[default.local_start_api.parameters]
+warm_containers = "EAGER"
+
+[default.local_start_lambda.parameters]
+warm_containers = "EAGER"
+
+# Development Environment
+[dev]
+[dev.deploy.parameters]
+stack_name = "library-project-dev"
+resolve_s3 = true
+s3_prefix = "library-project-dev"
+region = "us-east-2"
+confirm_changeset = false
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+    "Environment=dev",
+    "BucketName=library-store-bucket",
+    "LogLevel=debug",
+    "BookTableName=table-books-dev"
+]
+
+# QA Environment
+[qa]
+[qa.deploy.parameters]
+stack_name = "library-project-qa"
+resolve_s3 = true
+s3_prefix = "library-project-qa"
+region = "us-east-2"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+    "Environment=qa",
+    "BucketName=mi-bucket-app-qa",
+    "LogLevel=info",
+    "BookTableName=table-books-qa"
+]
+
+# Production Environment
+[prod]
+[prod.deploy.parameters]
+stack_name = "library-project-prod"
+resolve_s3 = true
+s3_prefix = "library-project-prod"
+region = "us-east-2"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+    "Environment=prod",
+    "BucketName=mi-bucket-app-oficial",
+    "LogLevel=error",
+    "BookTableName=table-books-prod"
+]

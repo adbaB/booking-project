@@ -1,0 +1,127 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Library Project - Book Search API
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - qa
+      - prod
+    Description: Deployment environment
+  
+  BucketName:
+    Type: String
+    Description: S3 bucket name for book storage
+  
+  BookTableName:
+    Type: String
+    Description: DynamoDB table name for book storage
+  
+  LogLevel:
+    Type: String
+    Default: debug
+    AllowedValues:
+      - debug
+      - info
+      - error
+    Description: Application log level
+
+Globals:
+  Function:
+    Runtime: nodejs24.x
+    Architectures:
+      - arm64
+    MemorySize: 1024
+    Timeout: 30
+    Environment:
+      Variables:
+        NODE_ENV: !Ref Environment
+        LOG_LEVEL: !Ref LogLevel
+
+Resources:
+  # HTTP API Gateway
+  LibraryHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Environment
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowHeaders:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        MaxAge: 600
+
+  # Lambda Function for Book Search
+  GetBooksFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2020
+        Sourcemap: false
+        EntryPoints:
+          - services/sls-get-books/handler.js
+        External:
+          - '@aws-sdk/client-s3'
+    Properties:
+      FunctionName: !Sub library-get-books-${Environment}
+      CodeUri: ./
+      Handler: handler.getBooks
+      Description: Lambda buscar en S3 los libros solicitados y verifica en dynamo si existen, si no, manda un mensaje al scraper para realizar la busqueda
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref BucketName
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref BucketName
+        - DynamoDBReadPolicy:
+            TableName: !Ref BookTableName
+      Events:
+        GetBooksApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref LibraryHttpApi
+            Path: /
+            Method: GET
+
+  # DynamoDB Table for Book Storage          
+  BookTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub table-books-${Environment}
+      AttributeDefinitions:
+        - AttributeName: isbn
+          AttributeType: S
+      KeySchema:
+        - AttributeName: isbn
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+Outputs:
+  ApiEndpoint:
+    Description: HTTP API endpoint URL
+    Value: !Sub https://${LibraryHttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+    Export:
+      Name: !Sub ${AWS::StackName}-ApiEndpoint
+  
+  GetBooksFunctionArn:
+    Description: GetBooks Lambda Function ARN
+    Value: !GetAtt GetBooksFunction.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-GetBooksFunctionArn
+  
+  GetBooksFunctionName:
+    Description: GetBooks Lambda Function Name
+    Value: !Ref GetBooksFunction
+    Export:
+      Name: !Sub ${AWS::StackName}-GetBooksFunctionName

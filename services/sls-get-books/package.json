@@ -1,0 +1,17 @@
+{
+  "name": "sls-get-books",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.982.0",
+    "@aws-sdk/client-s3": "^3.982.0"
+  }
+}

@@ -1,0 +1,14 @@
+node_modules
+.serverless
+user_data
+
+# AWS SAM
+.aws-sam/
+samconfig.toml.bak
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
