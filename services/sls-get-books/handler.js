@@ -1,11 +1,15 @@
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { BatchGetItemCommand, DynamoDBClient } from '@aws-sdk/client-dynamodb'
+import { BatchGetCommand, DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
+
 const s3Client = new S3Client({
   region: "us-east-2",
 });
-const dynamoDbClient = new DynamoDBClient({
-  region: "us-east-2",
-})
+const dynamoClient = new DynamoDBClient({});
+const docClient = DynamoDBDocumentClient.from(dynamoClient);
+
+const sqsClient = new SQSClient()
 const STOP_WORDS = new Set([
   "libro",
   "de",
@@ -109,6 +113,10 @@ const STOP_WORDS = new Set([
   "anywhere",
 ]);
 const bucketName = process.env.BUCKET_NAME;
+const tableBooks = process.env.TABLE_BOOKS;
+
+console.log(tableBooks, bucketName);
+
 const pathIsbn = "isbn/";
 const pathletter = "letter/";
 
@@ -129,7 +137,7 @@ export const getBooks = async (event) => {
       body: JSON.stringify({ message: `No se encontro criterios de busqueda` }),
     };
   }
-  console.log("Paramentro buscado:", search)
+  console.log("Parametro buscado:", search);
 
   if (isISBN(search)) {
     const cleanIsbn = search.replace(/[-\s]/g, "");
@@ -145,22 +153,40 @@ export const getBooks = async (event) => {
       );
       const catalog = JSON.parse(await Body.transformToString());
 
-
-
       const libro = catalog[cleanIsbn];
-
-      if (libro) {
-        return {
-          statusCode: 200,
-          body: JSON.stringify({ type: "direct_match", data: [libro] }),
-        };
-      } else {
+      if (!libro) {
+        // TODO: si el libro no es encontrado enviar busqueda a scraper para buscar en la web
         return {
           statusCode: 200,
           body: JSON.stringify({ type: "direct_match", data: [] }),
         };
       }
+      const input = {
+        RequestItems: {
+          [tableBooks]: {
+            Keys: [{ isbn: String(libro[0]) }],
+          },
+        },
+      };
+
+      const commandDynamoDbGet = new BatchGetCommand(input);
+
+      const response = await docClient.send(commandDynamoDbGet);
+
+      // TODO si lo consigue validar que la info este actualizada
+
+      // TODO si esta actualizada enviar al cliente
+
+      // TODO Si no esta actualizada buscar en el scraper y esperar su respuesta
+
+      // TODO si no lo consigue enviar al scraper  a buscarla y espera su respuesta
+
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ type: "direct_match", data: [libro] }),
+      };
     } catch (e) {
+      console.log(e);
       // Si no está en el índice, podrías mandarlo a la cola de scraping aquí
       return [];
     }
@@ -208,15 +234,52 @@ export const getBooks = async (event) => {
   let finalMatch = resultForWords.reduce((a, b) => {
     if (a.length === 0) return []; // Si ya está vacío, no hay nada que intersectar
     const setB = new Set(b); // Set es O(1) para búsquedas .has()
-    return a.filter(isbn => setB.has(isbn));
+    return a.filter((isbn) => setB.has(isbn));
   });
+
+  // TODO  buscar en Dynamo db los isbn
+
+  // crear estructures de input  [{ isbn: isbn1 },{ isbn: isbn2 } ... ]
+  const isbnInput = finalMatch.slice(0, 50).map((isbn) => {
+    return {
+      isbn: String(isbn),
+    };
+  });
+
+  const input = {
+    RequestItems: {
+      [tableBooks]: {
+        Keys: isbnInput,
+      },
+    },
+  };
+
+
+  console.log(isbnInput)
+  const commandDynamoDbGet = new BatchGetCommand(input);
+
+  const response = await docClient.send(commandDynamoDbGet);
+  const dbData = response.Responses[tableBooks]
+  
+  // TODO validar si consigue la informacion
+  if(Array.isArray(dbData) && dbData.length <= 0) {
+    // TODO si no lo consigue enviar al scraper  a buscarla y espera su respuesta
+    // crear topic para enviar al scraper
+  }
+
+  // TODO si lo consigue validar que la info este actualizada
+
+  // TODO si esta actualizada enviar al cliente
+
+  // TODO Si no esta actualizada buscar en el scraper y esperar su respuesta
+
 
   return {
     statusCode: 200,
     body: JSON.stringify({
       type: "search_match",
       total_found: finalMatch.length,
-      isbns: finalMatch.slice(0, 50) // Limitamos a los primeros 50
+      isbns: finalMatch.slice(0, 50), // Limitamos a los primeros 50
     }),
   };
 };

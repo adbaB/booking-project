@@ -67,19 +67,6 @@ Resources:
   # Lambda Function for Book Search
   GetBooksFunction:
     Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        Minify: true
-        Target: es2020
-        Sourcemap: false
-        EntryPoints:
-          - handler.js
-        External:
-          - '@aws-sdk/client-s3'
-          - '@aws-sdk/client-dynamodb'
-          - '@aws-sdk/lib-dynamodb'
-          - '@aws-sdk/client-sqs'
     Properties:
       FunctionName: !Sub library-get-books-${Environment}
       CodeUri: ./services/sls-get-books/

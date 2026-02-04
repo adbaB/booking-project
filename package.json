@@ -6,7 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "sam:build": "sam build",
-    "sam:local": "sam local start-api --env-vars env.json --parameter-overrides 'ParameterKey=Environment,ParameterValue=dev ParameterKey=BucketName,ParameterValue=library-store-bucket'\"",
+    "sam:local": "sam local start-api -t template-local.yaml --env-vars env.json --parameter-overrides 'ParameterKey=Environment,ParameterValue=dev ParameterKey=BucketName,ParameterValue=library-store-bucket,ParameterKey=BookTableName ParameterValue=table-books-dev'",
     "sam:deploy:dev": "sam deploy --config-env dev",
     "sam:deploy:qa": "sam deploy --config-env qa",
     "sam:deploy:prod": "sam deploy --config-env prod",
