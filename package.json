@@ -6,7 +6,10 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "sam:build": "sam build",
-    "sam:local": "sam local start-api -t template-local.yaml --env-vars env.json --parameter-overrides 'ParameterKey=Environment,ParameterValue=dev ParameterKey=BucketName,ParameterValue=library-store-bucket,ParameterKey=BookTableName ParameterValue=table-books-dev'",
+    "watch": "tsc -w",
+    "sam:local:api": "sam local start-api --config-env dev",
+    "sam:local:lambda": "sam local start-lambda --config-env dev",
+    "dev": "concurrently -n \"TSC,API,LMD\" -c \"blue,green,magenta\" \"npm run watch\" \"npm run sam:local:api\" \"npm run sam:local:lambda\"",
     "sam:deploy:dev": "sam deploy --config-env dev",
     "sam:deploy:qa": "sam deploy --config-env qa",
     "sam:deploy:prod": "sam deploy --config-env prod",
@@ -17,6 +20,10 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "esbuild": "^0.20.0"
+    "@types/aws-lambda": "^8.10.134",
+    "@types/node": "^20.11.24",
+    "concurrently": "^9.2.1",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.3"
   }
 }

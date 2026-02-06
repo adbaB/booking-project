@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Library Project - Book Search API
+Description: Library Project - Book Search API (Local)
 
 Parameters:
   Environment:
@@ -32,6 +32,10 @@ Parameters:
   SimpleQueueServiceName:
     Type: String
     Description: Simple Queue Service name
+  
+  ScraperWorkerName:
+    Type: String
+    Description: Name Lambda Invoke
 
 Globals:
   Function:
@@ -69,21 +73,21 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub library-get-books-${Environment}
-      CodeUri: ./services/sls-get-books/
-      Handler: handler.getBooks
+      CodeUri: .
+      Handler: dist/services/sls-get-books/handler.getBooks
       Description: Lambda buscar en S3 los libros solicitados y verifica en dynamo si existen, si no, manda un mensaje al scraper para realizar la busqueda
       Environment:
         Variables:
           BUCKET_NAME: !Ref BucketName
           TABLE_BOOKS: !Ref BookTableName
-          SQS_NAME: !Ref SimpleQueueServiceName
+          LAMBDA_SCRAPER_WORKER: !Ref ScraperWorkerName
       Policies:
         - S3ReadPolicy:
             BucketName: !Ref BucketName
         - DynamoDBReadPolicy:
             TableName: !Ref BookTableName
-        - SQSSendMessagePolicy:
-            QueueName: !Ref SimpleQueueService
+        - LambdaInvokePolicy: 
+            FunctionName: !Ref ScraperWorkerName
       Events:
         GetBooksApi:
           Type: HttpApi
@@ -91,6 +95,24 @@ Resources:
             ApiId: !Ref LibraryHttpApi
             Path: /
             Method: GET
+
+  ScraperWorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub library-scraper-worker-${Environment}
+      CodeUri: .
+      Handler: dist/services/sls-scraper-books/handler.scrapeBooks
+      Description: worker que escucha los mensajes de la cola y realiza la busqueda de los libros solicitados en la web
+      Environment:
+        Variables:
+          API_KEY: '/library/api-key'
+          URL_SCRAPER: '{{resolve:ssm:/library/url-scraper}}'
+          SQS_NAME: !Ref SimpleQueueService
+      Policies:
+        - SQSSendMessagePolicy:
+            QueueName: !Ref SimpleQueueService
+        - SSMParameterReadPolicy:
+            ParameterName: "library/api-key"
 
   # DynamoDB Table for Book Storage          
   BookTable:

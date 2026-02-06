@@ -43,7 +43,36 @@ parameter_overrides = [
     "BucketName=library-store-bucket",
     "LogLevel=debug",
     "BookTableName=table-books-dev",
-    "SimpleQueueServiceName=library-sqs-dev"
+    "SimpleQueueServiceName=library-sqs-dev",
+    "ScraperWorkerName=library-scraper-worker-dev"
+]
+
+[dev.local_start_api.parameters]
+template = "template-local.yaml"
+env_vars = "env.json"
+warm_containers = "EAGER"
+port = 3000
+parameter_overrides = [
+    "Environment=dev",
+    "BucketName=library-store-bucket",
+    "LogLevel=debug",
+    "BookTableName=table-books-dev",
+    "SimpleQueueServiceName=library-sqs-dev",
+    "ScraperWorkerName=library-scraper-worker-dev"
+]
+
+[dev.local_start_lambda.parameters]
+template = "template-local.yaml"
+env_vars = "env.json"
+warm_containers = "EAGER"
+port = 3001
+parameter_overrides = [
+    "Environment=dev",
+    "BucketName=library-store-bucket",
+    "LogLevel=debug",
+    "BookTableName=table-books-dev",
+    "SimpleQueueServiceName=library-sqs-dev",
+    "ScraperWorkerName=library-scraper-worker-dev"
 ]
 
 # QA Environment
@@ -60,7 +89,8 @@ parameter_overrides = [
     "BucketName=mi-bucket-app-qa",
     "LogLevel=info",
     "BookTableName=table-books-qa",
-    "SimpleQueueServiceName=library-sqs-qa"
+    "SimpleQueueServiceName=library-sqs-qa",
+    "ScraperWorkerName=library-scraper-worker-qa"
 ]
 
 # Production Environment
@@ -77,5 +107,6 @@ parameter_overrides = [
     "BucketName=mi-bucket-app-oficial",
     "LogLevel=error",
     "BookTableName=table-books-prod",
-    "SimpleQueueServiceName=library-sqs-prod"
+    "SimpleQueueServiceName=library-sqs-prod",
+    "ScraperWorkerName=library-scraper-worker-prod"
 ]
