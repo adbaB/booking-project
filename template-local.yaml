@@ -75,7 +75,8 @@ Resources:
       FunctionName: !Sub library-get-books-${Environment}
       CodeUri: .
       Handler: dist/services/sls-get-books/handler.getBooks
-      Description: Lambda buscar en S3 los libros solicitados y verifica en dynamo si existen, si no, manda un mensaje al scraper para realizar la busqueda
+      Description: Lambda buscar en S3 los libros solicitados y verifica en dynamo si existen, si no invoca al scraper para realizar la busqueda
+      Timeout: 120
       Environment:
         Variables:
           BUCKET_NAME: !Ref BucketName
@@ -102,17 +103,20 @@ Resources:
       FunctionName: !Sub library-scraper-worker-${Environment}
       CodeUri: .
       Handler: dist/services/sls-scraper-books/handler.scrapeBooks
-      Description: worker que escucha los mensajes de la cola y realiza la busqueda de los libros solicitados en la web
+      Description: worker que es invocado por la lambda GetBooksFunction para realiza la busqueda de los libros solicitados en la web
+      Timeout: 120
       Environment:
         Variables:
-          API_KEY: '/library/api-key'
-          URL_SCRAPER: '{{resolve:ssm:/library/url-scraper}}'
+          SCRAPER_HOST: '/library/scraper-host'
+          SCRAPER_PASSWORD: '/library/scraper-password'
+          SCRAPER_USERNAME: '/library/scraper-username'
+          SCRAPER_PORT: '/library/scraper-port'
           SQS_NAME: !Ref SimpleQueueService
       Policies:
         - SQSSendMessagePolicy:
             QueueName: !Ref SimpleQueueService
         - SSMParameterReadPolicy:
-            ParameterName: "library/api-key"
+            ParameterName: "library/*"
 
   # DynamoDB Table for Book Storage          
   BookTable:

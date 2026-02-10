@@ -16,10 +16,6 @@ Parameters:
     Type: String
     Description: S3 bucket name for book storage
   
-  BookTableName:
-    Type: String
-    Description: DynamoDB table name for book storage
-  
   LogLevel:
     Type: String
     Default: debug
@@ -28,14 +24,6 @@ Parameters:
       - info
       - error
     Description: Application log level
-  
-  SimpleQueueServiceName:
-    Type: String
-    Description: Simple Queue Service name
-  
-  ScraperWorkerName:
-    Type: String
-    Description: Name Lambda Invoke
 
 Globals:
   Function:
@@ -75,7 +63,7 @@ Resources:
       BuildMethod: esbuild
       BuildProperties:
         Minify: true
-        Target: es2020
+        Target: es2022
         Sourcemap: false
         EntryPoints:
           - handler.ts
@@ -88,19 +76,19 @@ Resources:
       FunctionName: !Sub library-get-books-${Environment}
       CodeUri: ./services/sls-get-books/
       Handler: handler.getBooks
-      Description: Lambda buscar en S3 los libros solicitados y verifica en dynamo si existen, si no, manda un mensaje al scraper para realizar la busqueda
+      Description: Lambda buscar en S3 los libros solicitados y verifica en dynamo si existen, si no invoca al scraper para realizar la busqueda
       Environment:
         Variables:
           BUCKET_NAME: !Ref BucketName
-          TABLE_BOOKS: !Ref BookTableName
-          LAMBDA_SCRAPER_WORKER: !Ref ScraperWorkerName
+          TABLE_BOOKS: !Ref BookTable
+          LAMBDA_SCRAPER_WORKER: !Ref ScraperWorkerFunction
       Policies:
         - S3ReadPolicy:
             BucketName: !Ref BucketName
         - DynamoDBReadPolicy:
-            TableName: !Ref BookTableName
+            TableName: !Ref BookTable
         - LambdaInvokePolicy: 
-            FunctionName: !Ref ScraperWorkerName
+            FunctionName: !Ref ScraperWorkerFunction
       Events:
         GetBooksApi:
           Type: HttpApi
@@ -115,27 +103,30 @@ Resources:
       BuildMethod: esbuild
       BuildProperties:
         Minify: true
-        Target: es2020
+        Target: es2022
         Sourcemap: false
         EntryPoints:
           - handler.ts
         External:
           - '@aws-sdk/client-sqs'
+          - '@aws-sdk/client-ssm'
     Properties:
       FunctionName: !Sub library-scraper-worker-${Environment}
       CodeUri: ./services/sls-scraper-books/
       Handler: handler.scrapeBooks
-      Description: worker que escucha los mensajes de la cola y realiza la busqueda de los libros solicitados en la web
+      Description: worker que es invocado por la lambda GetBooksFunction para realiza la busqueda de los libros solicitados en la web
       Environment:
         Variables:
-          API_KEY: '/library/api-key'
-          URL_SCRAPER: '{{resolve:ssm:/library/url-scraper}}'
+          SCRAPER_HOST: '/library/scraper-host'
+          SCRAPER_PASSWORD: '/library/scraper-password'
+          SCRAPER_USERNAME: '/library/scraper-username'
+          SCRAPER_PORT: '/library/scraper-port'
           SQS_NAME: !Ref SimpleQueueService
       Policies:
         - SQSSendMessagePolicy:
             QueueName: !Ref SimpleQueueService
         - SSMParameterReadPolicy:
-            ParameterName: "library/api-key"
+            ParameterName: "library/*"
 
   # DynamoDB Table for Book Storage          
   BookTable:
