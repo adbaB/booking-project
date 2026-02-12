@@ -41,10 +41,7 @@ capabilities = "CAPABILITY_IAM"
 parameter_overrides = [
     "Environment=dev",
     "BucketName=library-store-bucket",
-    "LogLevel=debug",
-    "BookTableName=table-books-dev",
-    "SimpleQueueServiceName=library-sqs-dev",
-    "ScraperWorkerName=library-scraper-worker-dev"
+    "LogLevel=debug"
 ]
 
 [dev.local_start_api.parameters]
@@ -87,10 +84,7 @@ capabilities = "CAPABILITY_IAM"
 parameter_overrides = [
     "Environment=qa",
     "BucketName=mi-bucket-app-qa",
-    "LogLevel=info",
-    "BookTableName=table-books-qa",
-    "SimpleQueueServiceName=library-sqs-qa",
-    "ScraperWorkerName=library-scraper-worker-qa"
+    "LogLevel=info"
 ]
 
 # Production Environment
@@ -105,8 +99,5 @@ capabilities = "CAPABILITY_IAM"
 parameter_overrides = [
     "Environment=prod",
     "BucketName=mi-bucket-app-oficial",
-    "LogLevel=error",
-    "BookTableName=table-books-prod",
-    "SimpleQueueServiceName=library-sqs-prod",
-    "ScraperWorkerName=library-scraper-worker-prod"
+    "LogLevel=error"
 ]

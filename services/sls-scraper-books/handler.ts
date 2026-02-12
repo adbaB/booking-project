@@ -1,17 +1,11 @@
 // Encargado de buscar libros desactualizados y libros no encontrados
+import { SQSClient, SendMessageBatchCommand } from "@aws-sdk/client-sqs";
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import { Context, Handler } from "aws-lambda";
 import axios from "axios";
+import axiosRetry from "axios-retry";
 import cheerio from "cheerio";
 import { IBook } from "./interface/book.interface";
-
-const host: string = process.env.SCRAPER_HOST || "";
-const port: string = process.env.SCRAPER_PORT || "";
-const username: string = process.env.SCRAPER_USERNAME || "";
-const password: string = process.env.SCRAPER_PASSWORD || "";
-const sqsName: string = process.env.SQS_NAME || "";
-
-const ssmClient = new SSMClient({ region: "us-east-2" });
 
 let initializationPromise: Promise<void> | null = null;
 
@@ -23,16 +17,88 @@ interface SecretConfig {
   encrypt: boolean;
 }
 
+interface ScrapeEvent {
+  s: string
+}
+
+interface LambdaResult {
+  statusCode: number;
+  body: string;
+}
+
+const ssmClient = new SSMClient({ region: "us-east-2" });
+const sqsClient = new SQSClient({ region: "us-east-2" });
+
+
+const PARAM_KEYS = {
+  host: process.env.SCRAPER_HOST || "",
+  port: process.env.SCRAPER_PORT || "",
+  user: process.env.SCRAPER_USERNAME || "",
+  pass: process.env.SCRAPER_PASSWORD || "",
+};
+
+const SQS_QUEUE_URL = process.env.SQS_URL || "";
+
+const chunkArray = (array: any[], size: number) => {
+  const chunks = [];
+  for (let i = 0; i < array.length; i += size) {
+    chunks.push(array.slice(i, i + size));
+  }
+  return chunks;
+};
+
+
+
+const sendBooksToQueue = async (books: IBook[]) => {
+  if (books.length === 0) return;
+
+  const chunks = chunkArray(books, 10);
+
+  for (const chunk of chunks) {
+    const entries = chunk.map((book, index) => ({
+      Id: `book_${book.isbn || index}_${Date.now()}`,
+      MessageBody: JSON.stringify(book),
+      MessageAttributes: {
+        "Topic": { DataType: "String", StringValue: "BookUpdate" },
+        "Source": { DataType: "String", StringValue: "BuscaLibre-Scraper" }
+      }
+    }));
+
+    const command = new SendMessageBatchCommand({
+      QueueUrl: SQS_QUEUE_URL,
+      Entries: entries,
+    });
+
+    try {
+      await sqsClient.send(command);
+      console.log(`Enviado lote de ${chunk.length} libros a SQS`);
+    } catch (err) {
+      console.error("Error enviando lote a SQS:", err);
+    }
+  }
+};
+
+
+axiosRetry(axios, { retries: 3 });
 /**
  * Función que carga múltiples secretos en paralelo
  */
-const initializeSecrets = async (secretsConfig: SecretConfig[]): Promise<void> => {
+const initializeSecrets = async (): Promise<void> => {
   console.log("--- Inicializando secretos desde SSM (Cold Start) ---");
 
-  console.log(secretsConfig);
+  const secretsToFetch: SecretConfig[] = [
+    { name: PARAM_KEYS.host, encrypt: false },
+    { name: PARAM_KEYS.port, encrypt: false },
+    { name: PARAM_KEYS.user, encrypt: true },
+    { name: PARAM_KEYS.pass, encrypt: true },
+    // { name: sqsName, encrypt: false },
+  ].filter(item => item.name !== "");
+
+  if (secretsToFetch.length === 0) return;
+
   try {
     await Promise.all(
-      secretsConfig.map(async (item) => {
+      secretsToFetch.map(async (item) => {
         const command = new GetParameterCommand({
           Name: item.name,
           WithDecryption: item.encrypt,
@@ -46,17 +112,11 @@ const initializeSecrets = async (secretsConfig: SecretConfig[]): Promise<void> =
     );
   } catch (error) {
     console.error("Error crítico cargando parámetros de SSM:", error);
-    throw error; // Es mejor fallar el inicio que correr sin credenciales
+    throw new Error('Failed to initialize credentials'); // Es mejor fallar el inicio que correr sin credenciales
   }
 };
 
-const parametrosAObtener: SecretConfig[] = [
-  { name: host, encrypt: false },
-  { name: port, encrypt: false },
-  { name: username, encrypt: true },
-  { name: password, encrypt: true },
-  // { name: sqsName, encrypt: false },
-];
+
 
 
 const parseNumeric = (str: string): number => {
@@ -65,99 +125,111 @@ const parseNumeric = (str: string): number => {
   return numericString ? parseInt(numericString, 10) : 0;
 };
 
-interface ScrapeEvent {
-  s: string
-}
+const getBooksFromSource = async (searchQuery: string): Promise<IBook[]> => {
+  const client = axios.create();
+  axiosRetry(client, { retries: 3, retryCondition: (error) => error.response?.status === 429 });
 
-interface LambdaResult {
-  statusCode: number;
-  body: string;
+  const response = await axios.get("https://www.buscalibre.com.co/libros/search/", {
+    // Definición de parámetros de búsqueda
+    params: {
+      q: searchQuery,
+    },
+    // Configuración del Proxy
+    proxy: {
+      protocol: "http",
+      host: cacheSecret[PARAM_KEYS.host],
+      port: parseInt(cacheSecret[PARAM_KEYS.port]),
+      auth: {
+        username: cacheSecret[PARAM_KEYS.user],
+        password: cacheSecret[PARAM_KEYS.pass],
+      },
+    },
+    timeout: 10000
+  });
+  console.log(response.data);
+
+  
+  const $ = cheerio.load(response.data);
+  const books: IBook[] = [];
+
+
+  $(".producto").each((_, elem) => {
+    const $el = $(elem);
+    
+   
+    const metaParts = $el.find(".autor.metas").text().trim().split(",").map(p => p.trim());
+    
+
+  
+    const meta = {
+      publisher: metaParts[0] || "",
+      age: metaParts[1] || "",
+      format: metaParts.length > 4 ? metaParts[3] : metaParts[2],
+      condition: metaParts.length > 4 ? metaParts[4] : metaParts[3]
+    };
+
+    // Construcción del objeto libro
+    const book: IBook = {
+      isbn: $el.attr("data-isbn") || "",
+      static_data: {
+        title: $el.find("h3.nombre").text().trim(),
+        author: $el.find(".autor:not(.metas)").first().text().trim(),
+        url: $el.find("a").first().attr("href") || "",
+        ...meta
+      },
+      price_data: {
+        price: parseNumeric($el.find(".box-precios strong").text()),
+        original_price: parseNumeric($el.find(".precio-antes del").text()),
+        discount: parseNumeric($el.find(".descuento-v2").text()),
+        currency: "COP",
+      },
+    };
+
+    books.push(book);
+  });
+
+  console.dir(books, { depth: null });
+
+  return books;
 }
 
 export const scrapeBooks: Handler<ScrapeEvent, LambdaResult | IBook[]> = async (
   event: ScrapeEvent,
   context: Context
 ) => {
-  // Implementation for scraping books would go here
+
   
   try {
     
     if (!initializationPromise) {
-      initializationPromise = initializeSecrets(parametrosAObtener);
+      initializationPromise = initializeSecrets();
     }
     
     await initializationPromise;
     
-    console.log("Scraping books...", JSON.stringify(event, null, 2));
-    const response = await axios.get("https://www.buscalibre.com.co/libros/search/", {
-      // Definición de parámetros de búsqueda
-      params: {
-        q: event.s,
-      },
-      // Configuración del Proxy
-      proxy: {
-        protocol: "http",
-        host: "brd.superproxy.io",
-        port: 33335,
-        auth: {
-          username: "brd-customer-hl_59fa0404-zone-web_unlocker1",
-          password: "z0agfzl8t22u",
-        },
-      },
-    });
-    console.log(response.data);
+    if (!event.s) {
+      return { statusCode: 400, body: JSON.stringify({ message: "Missing search parameter 's'" }) };
+    }
 
-    
-    const $ = cheerio.load(response.data);
-    const books: IBook[] = [];
+    const books = await getBooksFromSource(event.s);
 
+    if (books.length > 0) {
+      await sendBooksToQueue(books);
+    } else {
+      console.log("No se encontraron libros para enviar a SQS.");
+    }
 
-    $(".producto").each((_, elem) => {
-      const $el = $(elem);
-      
-     
-      const metaText = $el.find(".autor.metas").text().trim();
-      const parts = metaText.split(",").map(p => p.trim());
-
-    
-      const meta = {
-        publisher: parts[0] || "",
-        age: parts[1] || "",
-        format: parts.length > 4 ? parts[3] : parts[2],
-        condition: parts.length > 4 ? parts[4] : parts[3]
-      };
-
-      // Construcción del objeto libro
-      const book: IBook = {
-        isbn: $el.attr("data-isbn") || "",
-        static_data: {
-          title: $el.find("h3.nombre").text().trim(),
-          author: $el.find(".autor:not(.metas)").first().text().trim(),
-          url: $el.find("a").first().attr("href") || "",
-          ...meta
-        },
-        price_data: {
-          price: parseNumeric($el.find(".box-precios strong").text()),
-          original_price: parseNumeric($el.find(".precio-antes del").text()),
-          discount: parseNumeric($el.find(".descuento-v2").text()),
-          currency: "COP",
-        },
-      };
-
-      books.push(book);
-    });
-
-    console.dir(books, { depth: null }); // Para ver el objeto completo en consola
     return {
       statusCode: 200,
       body: JSON.stringify(books),
     };
 
-  } catch (error) {
-    console.error("Error during scraping:", error);
+  } catch (error:any) {
+
+    console.error("Scraping Error:", error.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({ message: "Internal Server Error" }),
+      body: JSON.stringify({ error: "Internal Server Error", details: error.message }),
     };
   }
 };

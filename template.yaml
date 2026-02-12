@@ -11,11 +11,11 @@ Parameters:
       - qa
       - prod
     Description: Deployment environment
-  
+
   BucketName:
     Type: String
     Description: S3 bucket name for book storage
-  
+
   LogLevel:
     Type: String
     Default: debug
@@ -45,9 +45,9 @@ Resources:
       StageName: !Ref Environment
       CorsConfiguration:
         AllowOrigins:
-          - "*"
+          - '*'
         AllowHeaders:
-          - "*"
+          - '*'
         AllowMethods:
           - GET
           - POST
@@ -76,7 +76,8 @@ Resources:
       FunctionName: !Sub library-get-books-${Environment}
       CodeUri: ./services/sls-get-books/
       Handler: handler.getBooks
-      Description: Lambda buscar en S3 los libros solicitados y verifica en dynamo si existen, si no invoca al scraper para realizar la busqueda
+      Description: Lambda buscar en S3 los libros solicitados y verifica en dynamo si
+        existen, si no invoca al scraper para realizar la busqueda
       Environment:
         Variables:
           BUCKET_NAME: !Ref BucketName
@@ -87,7 +88,7 @@ Resources:
             BucketName: !Ref BucketName
         - DynamoDBReadPolicy:
             TableName: !Ref BookTable
-        - LambdaInvokePolicy: 
+        - LambdaInvokePolicy:
             FunctionName: !Ref ScraperWorkerFunction
       Events:
         GetBooksApi:
@@ -114,19 +115,62 @@ Resources:
       FunctionName: !Sub library-scraper-worker-${Environment}
       CodeUri: ./services/sls-scraper-books/
       Handler: handler.scrapeBooks
-      Description: worker que es invocado por la lambda GetBooksFunction para realiza la busqueda de los libros solicitados en la web
+      Description: worker que es invocado por la lambda GetBooksFunction para realiza
+        la busqueda de los libros solicitados en la web
       Environment:
         Variables:
-          SCRAPER_HOST: '/library/scraper-host'
-          SCRAPER_PASSWORD: '/library/scraper-password'
-          SCRAPER_USERNAME: '/library/scraper-username'
-          SCRAPER_PORT: '/library/scraper-port'
-          SQS_NAME: !Ref SimpleQueueService
+          SCRAPER_HOST: /library/scraper-host
+          SCRAPER_PASSWORD: /library/scraper-password
+          SCRAPER_USERNAME: /library/scraper-username
+          SCRAPER_PORT: /library/scraper-port
+          SQS_URL: !Ref SimpleQueueService
       Policies:
         - SQSSendMessagePolicy:
             QueueName: !Ref SimpleQueueService
         - SSMParameterReadPolicy:
-            ParameterName: "library/*"
+            ParameterName: library/*
+
+
+  DataIngestorFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints:
+          - handler.ts
+        External:
+          - '@aws-sdk/client-s3'
+          - '@aws-sdk/client-dynamodb'
+          - '@aws-sdk/lib-dynamodb'
+          - '@aws-sdk/client-lambda'
+          - '@aws-sdk/client-sqs'
+    Properties:
+      FunctionName: !Sub library-data-ingestor-${Environment}
+      CodeUri: ./services/sls-data-ingestor/
+      Handler: handler.ingest
+      Description: Lambda que se encarga de sobreescribir los indices de S3 y Agregar
+        los libros nuevos a DynamoDB
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref BucketName
+          TABLE_BOOKS: !Ref BookTable
+          SQS_NAME: !Ref SimpleQueueService
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref BucketName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BookTable
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ScraperWorkerFunction
+      Events:
+        SqsIngestEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt SimpleQueueService.Arn
+            BatchSize: 10
 
   # DynamoDB Table for Book Storage          
   BookTable:
@@ -174,13 +218,13 @@ Outputs:
     Value: !Sub https://${LibraryHttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
     Export:
       Name: !Sub ${AWS::StackName}-ApiEndpoint
-  
+
   GetBooksFunctionArn:
     Description: GetBooks Lambda Function ARN
     Value: !GetAtt GetBooksFunction.Arn
     Export:
       Name: !Sub ${AWS::StackName}-GetBooksFunctionArn
-  
+
   GetBooksFunctionName:
     Description: GetBooks Lambda Function Name
     Value: !Ref GetBooksFunction
