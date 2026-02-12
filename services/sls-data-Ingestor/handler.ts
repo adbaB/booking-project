@@ -1,57 +1,75 @@
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { SQSEvent, SQSHandler } from "aws-lambda";
-import { IBook } from "../shared/interfaces/book.interface.js";
 
-// Inicialización de clientes fuera del handler para reuso
-const ddbClient = new DynamoDBClient({});
-const docClient = DynamoDBDocumentClient.from(ddbClient);
-const s3Client = new S3Client({});
+import { IBook } from "../shared/interfaces/book.interface";
+import { normalizeSearch, STOP_WORDS } from "../shared/utils/validators";
+import { DynamoService } from "./src/services/dynamo.service";
+import { S3Service } from "./src/services/s3.service";
 
-const TABLE_NAME = process.env.TABLE_BOOKS || "";
-const BUCKET_NAME = process.env.BUCKET_NAME || "";
+
+const dynamoService = new DynamoService();
+const s3Service = new S3Service();
 
 export const ingest: SQSHandler = async (event: SQSEvent) => {
   console.log(`Recibidos ${event.Records.length} mensajes de SQS.`);
 
-  const processingPromises = event.Records.map(async (record) => {
-    try {
+  const books = event.Records.map((record) => {
+  
       // 1. Parsear el cuerpo del mensaje (el libro que envió el scraper)
       const book: IBook = JSON.parse(record.body);
       
       if (!book.isbn) {
         console.error("Mensaje omitido: No tiene ISBN", record.messageId);
-        return;
+        return null;
       }
+      return book
 
-      // 2. Guardar en DynamoDB (Persistencia de metadatos y precios)
-      await docClient.send(new PutCommand({
-        TableName: TABLE_NAME,
-        Item: {
-          ...book,
-          updatedAt: new Date().toISOString(),
-          pk: `BOOK#${book.isbn}`, // Opcional: si usas patrones de Single Table Design
-        }
-      }));
-
-      // 3. Guardar en S3 (Opcional: como backup o para índices de búsqueda rápidos)
-      // Guardamos el JSON individual del libro
-      await s3Client.send(new PutObjectCommand({
-        Bucket: BUCKET_NAME,
-        Key: `indices/${book.isbn}.json`,
-        Body: JSON.stringify(book),
-        ContentType: "application/json"
-      }));
-
-      console.log(`Libro ${book.isbn} procesado con éxito.`);
-    } catch (error) {
-      console.error(`Error procesando mensaje ${record.messageId}:`, error);
-      // Al lanzar el error, SQS reintentará este mensaje basado en tu Redrive Policy
-      throw error; 
-    }
   });
 
-  // Esperar a que todos los mensajes del lote se procesen
-  await Promise.all(processingPromises);
+
+  if (books.length === 0) {
+    console.log("No se encontraron libros para procesar.");
+    return;
+  }
+
+  const filteredBooks = books.filter(book => book != null)
+
+  const promiseDynamo =  handlerDynamo(filteredBooks)
+
+  const promiseS3 = handlerS3(filteredBooks)
+
+  await Promise.all([promiseDynamo, promiseS3])
 };
+
+const handlerDynamo = async (books: IBook[]) => {
+  const requestBook = dynamoService.createRequestBook(books)
+
+  await dynamoService.PutBooks(requestBook)
+}
+
+const handlerS3 = async (books: IBook[]) => {
+  const updates = new Map<string, Set<string>>();
+
+  for (const book of books) {
+    const title = book.static_data?.title || "";
+    // Usamos tu validador de normalización para obtener las palabras clave
+    const words = normalizeSearch(title, STOP_WORDS);
+
+    for (const word of words) {
+      const prefix = word.substring(0, 3).toLowerCase();
+      if (!updates.has(prefix)) {
+        updates.set(prefix, new Set());
+      }
+      // Guardamos la relación palabra:isbn
+      updates.get(prefix)?.add(`${word.toLowerCase()}:${book.isbn}`);
+    }
+  }
+
+  // 2. Ejecutamos las actualizaciones de archivos en paralelo
+  const updatePromises = Array.from(updates.entries()).map(([prefix, newEntries]) => 
+    s3Service.updateIndexFile(prefix, newEntries)
+  );
+
+  await Promise.all(updatePromises);
+  console.log(`Índices de S3 actualizados para ${updates.size} prefijos.`);
+ 
+}

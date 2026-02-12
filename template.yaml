@@ -24,7 +24,6 @@ Parameters:
       - info
       - error
     Description: Application log level
-
 Globals:
   Function:
     Runtime: nodejs24.x
@@ -82,12 +81,15 @@ Resources:
         Variables:
           BUCKET_NAME: !Ref BucketName
           TABLE_BOOKS: !Ref BookTable
+          TABLE_EXCHANGE_RATE: !Ref ExchangeRateTable
           LAMBDA_SCRAPER_WORKER: !Ref ScraperWorkerFunction
       Policies:
         - S3ReadPolicy:
             BucketName: !Ref BucketName
         - DynamoDBReadPolicy:
             TableName: !Ref BookTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref ExchangeRateTable
         - LambdaInvokePolicy:
             FunctionName: !Ref ScraperWorkerFunction
       Events:
@@ -126,10 +128,9 @@ Resources:
           SQS_URL: !Ref SimpleQueueService
       Policies:
         - SQSSendMessagePolicy:
-            QueueName: !Ref SimpleQueueService
+            QueueName: !GetAtt SimpleQueueService.QueueName
         - SSMParameterReadPolicy:
             ParameterName: library/*
-
 
   DataIngestorFunction:
     Type: AWS::Serverless::Function
@@ -142,13 +143,14 @@ Resources:
         EntryPoints:
           - handler.ts
         External:
-          - '@aws-sdk/client-s3'
           - '@aws-sdk/client-dynamodb'
-          - '@aws-sdk/lib-dynamodb'
-          - '@aws-sdk/client-lambda'
+          - '@aws-sdk/client-s3'
           - '@aws-sdk/client-sqs'
+          - '@aws-sdk/lib-dynamodb'
     Properties:
       FunctionName: !Sub library-data-ingestor-${Environment}
+      ReservedConcurrentExecutions: 1
+      Timeout: 50
       CodeUri: ./services/sls-data-ingestor/
       Handler: handler.ingest
       Description: Lambda que se encarga de sobreescribir los indices de S3 y Agregar
@@ -171,6 +173,7 @@ Resources:
           Properties:
             Queue: !GetAtt SimpleQueueService.Arn
             BatchSize: 10
+            MaximumBatchingWindowInSeconds: 15
 
   # DynamoDB Table for Book Storage          
   BookTable:
@@ -184,6 +187,25 @@ Resources:
           AttributeType: S
       KeySchema:
         - AttributeName: isbn
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: purge_at
+        Enabled: true
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+
+  ExchangeRateTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub table-exchange-rate-${Environment}
+      AttributeDefinitions:
+        - AttributeName: date
+          AttributeType: S
+      KeySchema:
+        - AttributeName: date
           KeyType: HASH
       BillingMode: PAY_PER_REQUEST
       SSESpecification:

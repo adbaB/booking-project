@@ -1,9 +1,9 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
-import { DynamoService } from "./src/services/dynamo.service.js";
-import { S3Service } from "./src/services/s3.service.js";
-import { ScraperService } from "./src/services/scraper.service.js";
+import { isISBN, normalizeSearch, STOP_WORDS } from "../shared/utils/validators";
+import { DynamoService } from "./src/services/dynamo.service";
+import { S3Service } from "./src/services/s3.service";
+import { ScraperService } from "./src/services/scraper.service";
 import { errorResponse, notFoundResponse, successResponse } from "./src/utils/response.js";
-import { isISBN, normalizeSearch, STOP_WORDS } from "./src/utils/validators.js";
 
 // Initialize Services
 const s3Service = new S3Service();
@@ -111,6 +111,10 @@ const handleKeywordSearch = async (search: string): Promise<APIGatewayProxyResul
         });
     }
 
+
+    // TODO : Get Pagination 
+    // TODO : Get Sort
+    // TODO : Get Validation is book is up to date or not if not is call scraper to update it
     // 3. Get details from DynamoDB
     const isbnsToFetch = finalMatch.slice(0, 50);
     const books = await dynamoService.getBooksByIsbns(isbnsToFetch);
