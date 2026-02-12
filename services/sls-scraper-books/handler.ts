@@ -5,7 +5,7 @@ import { Context, Handler } from "aws-lambda";
 import axios from "axios";
 import axiosRetry from "axios-retry";
 import cheerio from "cheerio";
-import { IBook } from "./interface/book.interface";
+import { IBook } from "../shared/interfaces/book.interface";
 
 let initializationPromise: Promise<void> | null = null;
 
